@@ -322,7 +322,7 @@ $count = 0;
                   ?>
                   
               </td>
-		  <td><form action="admin.php?page=<?php echo basename(dirname(__FILE__)); ?>/wpr-s2member.php&act=deletetrans&level=<?php echo $number; ?>&nid=<?php echo $nid ?>" method="post"><?php wp_nonce_field('s2towprdel'); ?><input type="hidden" name="nid" value="<?php echo $nid; ?>"/><input class="button" type="submit" value="Delete"></form>
+		  <td><form action="admin.php?page=<?php echo basename(dirname(__FILE__)); ?>/wpr-s2member.php&act=deletetrans&level=<?php echo $level; ?>&nid=<?php echo $nid ?>" method="post"><?php wp_nonce_field('s2towprdel'); ?><input type="hidden" name="nid" value="<?php echo $nid; ?>"/><input class="button" type="submit" value="Delete"></form>
 	   </tr>
 		  <?php
 		  
