@@ -4,7 +4,7 @@
 Plugin Name: WP Autoresponder to s2member Integration Plugin
 Plugin URI: http://www.wpresponder.com
 Description: Used for adding new users to s2member who subscribe to a newsletter and vice versa. 
-Version: 0.1
+Version: 0.4
 Author: Raj Sekharan
 Author URI: http://www.nodesman.com/
 */
@@ -25,6 +25,58 @@ Author URI: http://www.nodesman.com/
 	   }
 	}
 	
+function _wprsd_add_rule($membership,$newsletter,$autoresponder=null)
+{
+         $s2towprSettings = get_option("_wprs2_s2_to_wpr");
+	 if (empty($s2towprSettings)) {
+	 
+	     $settings = array();		   
+	     $settings[$membership][$newsletter] = array("newsletter"=>$newsletter,
+	       				                 "autoresponder"=>$autoresponder);
+	     update_option("_wprs2_s2_to_wpr",$settings);
+	 }
+	 else
+	 {
+                $name = $membership;			
+		$s2towprSettings[$membership][$newsletter] = array("newsletter"=>$newsletter,
+					         "autoresponder"=>$autoresponder);
+		update_option("_wprs2_s2_to_wpr",$s2towprSettings);
+	 }
+}
+function _wprsd_del_rule($membership,$newsletter,$autoresponder=null)
+{
+        $s2towprSettings = get_option("_wprs2_s2_to_wpr");
+	unset($s2towprSettings[$membership][$newsletter]);
+	update_option("_wprs2_s2_to_wpr",$s2towprSettings);
+
+}
+
+function _wprs2_get_rules()
+{
+    $rule  = get_option("_wprs2_s2_to_wpr");
+    
+    if (!isset($rule) || empty($rule) || !is_array($rule))
+    {
+        return array();
+    }    
+    
+    return $rule;
+    
+}
+
+function _wprs2_get_levels()
+{
+
+	 global $wp_roles;
+	 $roles = $wp_roles->roles;	 
+	 $roleInfo = array();
+	 foreach ($roles as $name=>$role)
+	 {
+	      $roleInfo[$name]= $role['name'];
+	 }
+	return $roleInfo;
+}
+
 function wprs2_init() 
 {
 	global $wpdb;
@@ -38,13 +90,13 @@ function wprs2_init()
 		{
 		   $options = get_option("_wprs2_s2_to_wpr");
 		   //get the option for this role
-		   $level = str_replace("_level","",$role);
+		   $level = $role;
 		   //get the corresponding newsletter list
 		   
-		   if (!isset($options[$level]))
+		   if (!isset($options[$level]) || 0 == count($options[$level]))
 		      exit;
 		   $newsletters = $options[$level];
-		   foreach ($newsletters as $nid=>$aid) {
+		   foreach ($newsletters as $nid=>$options) {
 		      //check if the subscriber is already present if so, activate
 			  $updateSubscriberQuery = sprintf("UPDATE %swpr_subscribers SET active=1, confirmed=1, name='%s' WHERE email='%s' AND nid=%d",$wpdb->prefix,$name, $email,$nid);
 			  $wpdb->query($updateSubscriberQuery); 
@@ -66,10 +118,10 @@ function wprs2_init()
                         $id = $wpdb->insert_id;
 
 
-                        if (!empty($aid))
+                        if (!empty($options['autoresponder']) && (0 < intval($options['autoresponder'])))
                             {
                             $time= time();
-                            $inesrtAutoresponderQuery = sprintf("INSERT INTO %swpr_followup_subscriptions (sid, type, eid, sequence, doc) VALUES (%d, 'autoresponder', %d, -1, '%s'); ",$wpdb->prefix,$id, $aid, $time);
+                            $inesrtAutoresponderQuery = sprintf("INSERT INTO %swpr_followup_subscriptions (sid, type, eid, sequence, doc) VALUES (%d, 'autoresponder', %d, -1, '%s'); ",$wpdb->prefix,$id, $options['autoresponder'], $time);
                             $wpdb->query($inesrtAutoresponderQuery);
                         }
 		   }
@@ -147,18 +199,8 @@ function _wprs2_s2_to_wpr() {
 	     die("Security check failed.");
 	   
 	   $nid = $_GET['nid'];
-	   $s2towpr  = get_option("_wprs2_s2_to_wpr");
-	              print_r($s2towpr);
-	   $number = intval($_GET['level']);
-	   $config_name = "s2member".$number;
-	   if (!isset($s2towpr[$config_name]))
-		$error[] = __("Invalid rule deletion");
-
-	   $current_settings = $s2towpr[$config_name];
-	   $new_settings = $current_settings;
-           unset($new_settings[$nid]);
-	   $s2towpr[$config_name] = $new_settings;
-	   update_option("_wprs2_s2_to_wpr",$s2towpr);
+	   $membership = $_GET['level'];
+	   _wprsd_del_rule($membership,$nid);
 	}
 
    if (isset($_POST['s2towpr'])) {
@@ -168,7 +210,7 @@ function _wprs2_s2_to_wpr() {
 	    die("Security check failed.");
 	
 	  $membership = $_POST['membership'];
-          $autoresponder = $_POST['autoresponder'];
+          $autoresponder = intval($_POST['autoresponder']);
 	  if (!isset($membership))
 	   {
 	       $error [] = __("No membership level specified");
@@ -181,12 +223,12 @@ function _wprs2_s2_to_wpr() {
 	   }
 
            $s2towprSettings = get_option("_wprs2_s2_to_wpr");
-           $membership = "s2member{$membership}";
+           
+           
 
-           if (!empty($s2towprSettings[$membership][$newsletter]))
-               $error[] = __("A rule exists for that newsletter. Please delete the existing rule to add a new one.");
+          if (!empty($s2towprSettings[$membership][$newsletter]))
+               $error[] = __("A rule exists for that newsletter-membership level combination. Please delete the existing rule to add a new one.");
 
-	   
 	   if (count($error) != 0)
 	   {
 		  foreach ($error as $er) {
@@ -198,51 +240,22 @@ function _wprs2_s2_to_wpr() {
 	   else {
 	     
 		 $s2towprSettings = get_option("_wprs2_s2_to_wpr");
-                 
-		 if (empty($s2towprSettings)) {
-		   $settings = array();
-		   $settings[$membership]= array("$newsletter"=>$autoresponder);
-		   update_option("_wprs2_s2_to_wpr",$settings);
 
-		 }
+		 if (0 == $autoresponder)
+		   _wprsd_add_rule($membership, $newsletter);
 		 else
-		 {
-                        $name = $membership;
-			$current_settings = ($s2towprSettings[$name])?$s2towprSettings[$name]:array();
-                        $current_settings[$newsletter] = $autoresponder;
-                        $s2towprSettings[$name] = $current_settings;
-			update_option("_wprs2_s2_to_wpr",$s2towprSettings);
-		 }
+		   _wprsd_add_rule($membership, $newsletter,$autoresponder);
+		
 	}
 	  
    }
-   		 $options = get_option("ws_plugin__s2member_options");
-   		 $levels = array();
-		 foreach ($options as $name=>$value)
-		 {
-		 
-		     if (preg_match("@level[0-9]+_label@",$name))
-		     {
-		        preg_match("@level([0-9]+)_label@",$name,$match);
-		        $index = $match[1];
-		        $label = $value;
-		        $levels["$index"] = $value;
-		     }
+   		$levels = _wprs2_get_levels();
 
-		 }
-
-    $real_options = array();
-	$options = get_option("_wprs2_s2_to_wpr");
-	if (is_array($options))
-	foreach ($options as $level=>$option) {
-	    if (count($option) ==0)
-		    continue;
-		$real_options[$level] = $option;
-	}
-	else 
-	 $options = array();
+     
 	
 	$key = get_option("_wprs2_key");
+	
+	$real_options = _wprs2_get_rules();
 
    ?>
                         
@@ -270,30 +283,18 @@ Below are the rules defined to subscribe s2member users to newsletters of WPR:<b
 	</thead>    
 
 <?php
- $options = get_option("ws_plugin__s2member_options");
- $levels = array();
- foreach ($options as $name=>$value)
- {
- 
-     if (preg_match("@level[0-9]+_label@",$name))
-     {
-        preg_match("@level([0-9]+)_label@",$name,$match);
-        $index = $match[1];
-        $label = $value;
-        $levels["$index"] = $value;
-     }
 
- }
 
 $count = 0;
   if (count($real_options) > 0 )
   foreach ($real_options as $level=>$option) {
-  
+  if (count($option) == 0 )
+     continue;
    ?>
 <tr>
    <td><?php echo ++$count; ?></td>
    <td><?php
-   $level = intval(str_replace("s2member","",$level));
+   
    echo $levels[$level];
    ?></td>
     <td>
@@ -308,17 +309,26 @@ $count = 0;
 	   </thead>
 	<?php
         
-	foreach ($option as $nid=>$aid ) {
+	foreach ($option as $nid=>$options ) {
+	
 	   ?>
 	   <tr>
 	      <td><?php 
 
 		  $n = _wprs2_newsletter_get($nid);
+		  
 		  echo $n->name; //echo $nid ?></td>
               <td>
                   <?php
-                  $a = _wprs2_autoresponder_get($aid);
-                  echo $a->name;
+                  if (0 < intval($options['autoresponder']))
+                  {
+		          $a = _wprs2_autoresponder_get($options['autoresponder']);
+		          echo $a->name;
+		   }
+		   else
+		   {
+		        echo "None";
+		   }
                   ?>
                   
               </td>
@@ -357,23 +367,13 @@ $count = 0;
 	     <td>
 		 <select name="membership" style="height: 150px;min-width: 150px; " size="3">
 		 <?php
-		 $options = get_option("ws_plugin__s2member_options");
 		 
-		 $levels = array();
-		 foreach ($options as $name=>$value)
-		 {
+		 $roleInfo = _wprs2_get_levels();
 		 
-		     if (preg_match("@level[0-9]+_label@",$name))
-		     {
-		        preg_match("@level([0-9]+)_label@",$name,$match);
-		        $index = $match[1];
-		        $label = $value;
-		        $levels["$index"] = $value;
-		     }
-
-		 }
+		 print_r($roleInfo);
 		 
-		 foreach ($levels as $level=>$level_name)
+		 
+		 foreach ($roleInfo as $level=>$level_name)
 		 {
 		 ?>
 		   <option value="<?php echo $level ?>"><?php echo $level_name ?></option>
@@ -383,7 +383,6 @@ $count = 0;
 		 </select>
 		 </td>
 		 <td>
-
 		 <?php 
 		 $newsletters = _wprs2_newsletter_list();
                  
@@ -554,6 +553,7 @@ foreach ($new_settings as $nid=>$memberships) {
 	     $options = get_option("ws_plugin__s2member_options");
 		 
 	
+
 	   foreach ($memberships as $membership) {
 	        $name = str_replace("s2member","",$membership);
 			?><td> <?php echo $name; ?></td>
